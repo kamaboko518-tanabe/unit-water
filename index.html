@@ -24,6 +24,8 @@
   --ng: #a32222;
   --ng-bg: #f9dede;
   --field: #f6f9fa;
+  --live: #0b7fa8;
+  --live-bg: #def1f8;
   --font: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -31,12 +33,14 @@
     color-scheme: dark;
     --bg: #0f171a; --card: #182226; --ink: #e6eef1; --muted: #98aeb7; --line: #2d3f46;
     --accent: #5cbad9; --ok: #7ad79b; --ok-bg: #173a26; --ng: #ff9d9d; --ng-bg: #4a1b1b; --field: #0f171a;
+    --live: #4fc3ea; --live-bg: #123845;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0f171a; --card: #182226; --ink: #e6eef1; --muted: #98aeb7; --line: #2d3f46;
   --accent: #5cbad9; --ok: #7ad79b; --ok-bg: #173a26; --ng: #ff9d9d; --ng-bg: #4a1b1b; --field: #0f171a;
+  --live: #4fc3ea; --live-bg: #123845;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -96,6 +100,13 @@ input[type="text"] { font-size: 1.125rem; }
 .status { margin: 0; font-size: 0.8125rem; color: var(--accent); min-height: 1.2em; }
 button.danger { color: var(--ng); }
 input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.live { border: 2px solid var(--live); background: var(--live-bg); }
+.tag {
+  display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 0.6875rem; font-weight: 700;
+  background: var(--live); color: var(--bg); vertical-align: 1px;
+}
+.legend { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.8125rem; color: var(--muted); }
+.legend i { flex: 0 0 auto; width: 22px; height: 16px; border-radius: 4px; border: 2px solid var(--live); background: var(--live-bg); }
 .req::after { content: " *"; color: var(--accent); }
 
 details.card summary { cursor: pointer; font-weight: 700; font-size: 1rem; }
@@ -134,6 +145,8 @@ button {
 
   <form class="wrap" id="f" autocomplete="off" style="gap:14px">
 
+    <p class="legend"><i aria-hidden="true"></i>色のついた枠が、測定のたびに入れる項目です。入れると、上に結果が出ます。</p>
+
     <section class="card">
       <h2>保存した配合<small>この端末に保存</small></h2>
       <label for="mixSel">呼び出す配合
@@ -171,7 +184,7 @@ button {
       <h2>空気量<small>%</small></h2>
       <div class="grid">
         <label for="airD"><span class="req">設計空気量</span><input id="airD" type="number" inputmode="decimal" step="any"></label>
-        <label for="airM"><span class="req">測定空気量</span><input id="airM" type="number" inputmode="decimal" step="any"></label>
+        <label for="airM"><span><span class="req">測定空気量</span><span class="tag">測定で入力</span></span><input id="airM" class="live" type="number" inputmode="decimal" step="any"></label>
         <label for="corr">骨材修正係数<input id="corr" type="number" inputmode="decimal" step="any"></label>
       </div>
     </section>
@@ -195,7 +208,7 @@ button {
       <div class="grid one">
         <label for="vol"><span class="req">下容器容積（L）</span><input id="vol" type="number" inputmode="decimal" step="any"></label>
         <label for="mMeter"><span class="req">エアメータの質量（g）</span><input id="mMeter" type="number" inputmode="decimal" step="any"></label>
-        <label for="mTotal"><span class="req">エアメータ＋試料の質量（g）</span><input id="mTotal" type="number" inputmode="decimal" step="any"></label>
+        <label for="mTotal"><span><span class="req">エアメータ＋試料の質量（g）</span><span class="tag">測定で入力</span></span><input id="mTotal" class="live" type="number" inputmode="decimal" step="any"></label>
       </div>
     </section>
 
@@ -333,7 +346,7 @@ function computeTarget(v) {
       sel.innerHTML = '';
       var o0 = document.createElement('option');
       o0.value = '';
-      o0.textContent = s.items.length ? '（選んでください）' : '（まだ保存した' + c.label + 'はありません）';
+      o0.textContent = s.items.length ? '（選んでください）' : '（まだありません）';
       sel.appendChild(o0);
       s.items.forEach(function (m) {
         var o = document.createElement('option');

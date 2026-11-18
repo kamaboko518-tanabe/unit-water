@@ -64,7 +64,15 @@ body {
 .pill { font-weight: 700; font-size: 0.9375rem; padding: 4px 12px; border-radius: 999px; background: var(--line); color: var(--muted); }
 .pill.ok { background: var(--ok-bg); color: var(--ok); }
 .pill.ng { background: var(--ng-bg); color: var(--ng); }
-.msg { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; color: var(--ng); min-height: 1em; }
+.target {
+  grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; font-variant-numeric: tabular-nums;
+}
+.target .tl { font-size: 0.8125rem; color: var(--muted); }
+.target .tv { font-size: 1.5rem; font-weight: 700; }
+.target .tv small { font-size: 0.8125rem; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.msg { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; color: var(--muted); min-height: 1em; }
+.msg.bad { color: var(--ng); }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .card h2 { margin: 0; font-size: 1rem; }
@@ -115,6 +123,10 @@ button {
       <div class="side">
         <span class="err">誤差 W′ <b id="rE">–</b></span>
         <span class="pill" id="rJ">判定待ち</span>
+      </div>
+      <div class="target">
+        <span class="tl">目標質量（誤差0）<br>エアメータ＋試料</span>
+        <span class="tv"><span id="rT">–</span><small>g</small></span>
       </div>
       <p class="msg" id="msg"></p>
     </div>
@@ -240,6 +252,25 @@ function compute(v) {
   return {
     Mc: Mc, alpha: alpha, k: k, gamma1: gamma1, airS: airS, mass: mass, gamma2: gamma2,
     wpRaw: wpRaw, wp: wp, W: W, pass: Math.abs(wp) <= v.tol
+  };
+}
+// 誤差 W′ が 0 になる「エアメータ＋試料の質量」と、合格になる質量の範囲。
+// エアメータ＋試料の質量（v.mTotal）は使わない。
+function computeTarget(v) {
+  var Mc = v.w + v.c + v.s1 + v.s2 + v.s3 + v.g1 + v.g2 + v.g3;
+  var alpha = v.c * 0.001;
+  var k = 1 - (v.airD + alpha) * 0.01;
+  var airS = v.airM - v.corr;
+  var denomAir = v.vol * (1 - airS * 0.01);
+  if (!(denomAir > 0)) return { error: '容積または空気量の値を確認してください。' };
+  // W′ から逆算：γ2 ＝ (Mc ＋ W′) ÷ (k ＋ W′ ÷ 1000)、質量 ＝ γ2 × 容積 × (1 − 試料中の空気量 × 0.01) ＋ エアメータの質量
+  function totalFor(wp) { return (Mc + wp) / (k + wp / 1000) * denomAir + v.mMeter; }
+  var edge = v.tol + 0.5; // W′ を整数に丸めて ±規格値 以内になる限界
+  return {
+    Mc: Mc, alpha: alpha, k: k, gamma1: Mc / k, airS: airS,
+    target: totalFor(0),
+    passLow: Math.ceil(totalFor(edge)),   // 水が多い側（軽い）の限界
+    passHigh: Math.floor(totalFor(-edge)) // 水が少ない側（重い）の限界
   };
 }
 // </compute>
@@ -416,8 +447,9 @@ function compute(v) {
   }
   function say(id, text) { $(id).textContent = text; }
 
-  function setResult(W, E, state, msg) {
+  function setResult(W, E, state, msg, isErr) {
     $('rW').textContent = W; $('rE').textContent = E; $('msg').textContent = msg || '';
+    $('msg').className = 'msg' + (isErr ? ' bad' : '');
     var p = $('rJ'); p.className = 'pill' + (state === 'ok' ? ' ok' : state === 'ng' ? ' ng' : '');
     p.textContent = state === 'ok' ? '✓ 合格' : state === 'ng' ? '✕ 不合格' : '判定待ち';
   }
@@ -427,18 +459,37 @@ function compute(v) {
   }
 
   function render() {
-    var miss = Object.keys(REQUIRED).filter(function (id) { return isNaN(num(id)); });
-    if (miss.length) {
-      setResult('–', '–', 'wait', '未入力：' + miss.map(function (id) { return REQUIRED[id]; }).join('、'));
+    // 目標質量に必要なのは、エアメータ＋試料の質量以外の必須項目
+    var needTarget = Object.keys(REQUIRED).filter(function (id) { return id !== 'mTotal'; });
+    var missT = needTarget.filter(function (id) { return isNaN(num(id)); });
+    if (missT.length) {
+      $('rT').textContent = '–';
+      setResult('–', '–', 'wait', '未入力：' + missT.map(function (id) { return REQUIRED[id]; }).concat(isNaN(num('mTotal')) ? [REQUIRED.mTotal] : []).join('、'));
       $('steps').innerHTML = '<p class="note">必須項目（＊）を入力すると、ここに計算の経過が出ます。</p>';
       return;
     }
     var v = {};
-    Object.keys(REQUIRED).forEach(function (id) { v[id] = num(id); });
+    needTarget.forEach(function (id) { v[id] = num(id); });
     OPTIONAL.forEach(function (id) { var n = num(id); v[id] = isNaN(n) ? 0 : n; });
     var t = num('tol'); v.tol = isNaN(t) ? 15 : t;
+
+    var tg = computeTarget(v);
+    if (tg.error) { $('rT').textContent = '–'; setResult('–', '–', 'wait', tg.error, true); $('steps').innerHTML = ''; return; }
+    $('rT').textContent = fmt(Math.round(tg.target), 0);
+    var targetSteps =
+      step('目標質量（誤差 W′ が 0 になる、エアメータ＋試料の質量）', fmt(Math.round(tg.target), 0) + ' g',
+           '試料の質量 ＝ γ1 × 容積 × (1 − 試料中の空気量 × 0.01) として、エアメータの質量を足した値') +
+      step('合格になる質量の範囲', fmt(tg.passLow, 0) + ' ～ ' + fmt(tg.passHigh, 0) + ' g',
+           '誤差 W′ を整数に丸めて ±' + v.tol + ' kg/m³ 以内になる範囲');
+
+    if (isNaN(num('mTotal'))) {
+      setResult('–', '–', 'wait', 'エアメータ＋試料の質量を入れると、単位水量が出ます。');
+      $('steps').innerHTML = targetSteps;
+      return;
+    }
+    v.mTotal = num('mTotal');
     var r = compute(v);
-    if (r.error) { setResult('–', '–', 'wait', r.error); $('steps').innerHTML = ''; return; }
+    if (r.error) { setResult('–', '–', 'wait', r.error, true); $('steps').innerHTML = targetSteps; return; }
     setResult(String(r.W), signed(r.wp), r.pass ? 'ok' : 'ng', '');
     $('steps').innerHTML =
       step('配合上の単位容積質量 Mc', fmt(r.Mc, 0) + ' kg/m³', 'W＋C＋S＋G の合計') +
@@ -449,7 +500,8 @@ function compute(v) {
       step('② 試験で得られる空気を除いた単位容積質量 γ2', fmt(r.gamma2, 0), 'γ2 ＝ 試料の質量 ÷ (容積 × (1 − 試料中の空気量 × 0.01))') +
       step('③ 単位水量の誤差 W′', signed(r.wp) + ' kg/m³', 'W′ ＝ (γ2 × (1 − (設計空気量＋α) × 0.01) − Mc) ÷ (1 − γ2 × 0.001)　※整数に丸め（計算値 ' + fmt(r.wpRaw, 2) + '）') +
       step('④ 推定単位水量 W', r.W + ' kg/m³', 'W ＝ 配合上の単位水量 ＋ W′') +
-      step('判定', (r.pass ? '合格' : '不合格'), '規格値 ' + v.w + ' ± ' + v.tol + ' kg/m³ （誤差 W′ の絶対値 ≦ ' + v.tol + '）');
+      step('判定', (r.pass ? '合格' : '不合格'), '規格値 ' + v.w + ' ± ' + v.tol + ' kg/m³ （誤差 W′ の絶対値 ≦ ' + v.tol + '）') +
+      targetSteps;
   }
 
   document.getElementById('f').addEventListener('input', function () { save(); render(); });

@@ -166,6 +166,20 @@ button {
 
     <section class="card">
       <h2>エアメータの測定</h2>
+      <label for="meterSel">保存したエアメータ
+        <select id="meterSel"></select>
+      </label>
+      <label for="meterName">エアメータ名（保存・上書き用）
+        <div class="row">
+          <input id="meterName" type="text" placeholder="例：No.1" maxlength="40" autocapitalize="off">
+          <button type="button" id="meterSave">保存</button>
+        </div>
+      </label>
+      <div class="row">
+        <button type="button" id="meterDel" class="danger">選んだエアメータを削除</button>
+      </div>
+      <p class="status" id="meterStatus" aria-live="polite"></p>
+      <p class="note">保存されるのは、下容器容積とエアメータの質量です。測定のたびに変わる「エアメータ＋試料の質量」は保存しません。</p>
       <div class="grid one">
         <label for="vol"><span class="req">下容器容積（L）</span><input id="vol" type="number" inputmode="decimal" step="any"></label>
         <label for="mMeter"><span class="req">エアメータの質量（g）</span><input id="mMeter" type="number" inputmode="decimal" step="any"></label>
@@ -187,7 +201,7 @@ button {
 
     <details class="card">
       <summary>バックアップ</summary>
-      <p class="note">保存した配合を文字にして、メモやLINEに貼っておけます。端末の故障や機種変更のときに、読み込んで戻せます。</p>
+      <p class="note">保存した配合とエアメータを文字にして、メモやLINEに貼っておけます。端末の故障や機種変更のときに、読み込んで戻せます。</p>
       <textarea id="bk" aria-label="バックアップの文字" spellcheck="false"></textarea>
       <div class="actions">
         <button type="button" id="bkOut">文字にしてコピー</button>
@@ -259,117 +273,148 @@ function compute(v) {
     AIR.forEach(fmtAirField);
   }
 
-  // ---- 配合の保存・呼び出し（この端末の中にだけ保存） ----
-  var MIX_KEY = 'unit-water-mixes-v1';
-  var MIX_FIELDS = ['w', 'c', 's1', 's2', 's3', 'g1', 'g2', 'g3', 'airD', 'corr'];
-  var mixes = [];
+  // ---- 配合・エアメータの保存と呼び出し（この端末の中にだけ保存） ----
   var storageOk = true;
 
-  function loadMixes() {
-    try {
-      var s = localStorage.getItem(MIX_KEY);
-      var a = s ? JSON.parse(s) : [];
-      return Array.isArray(a) ? a.filter(function (m) { return m && typeof m.name === 'string' && m.name; }) : [];
-    } catch (e) { storageOk = false; return []; }
-  }
-  function saveMixes() {
-    try { localStorage.setItem(MIX_KEY, JSON.stringify(mixes)); return true; }
-    catch (e) { storageOk = false; return false; }
-  }
-  function sortMixes() { mixes.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); }); }
-  function findMix(name) { for (var i = 0; i < mixes.length; i++) if (mixes[i].name === name) return i; return -1; }
-  function say(id, text) { $(id).textContent = text; }
+  // c.p: 画面の部品名の頭（mix / meter）, c.key: 保存名, c.label: 表示名,
+  // c.fields: 保存する入力欄, c.need: 保存に必要な入力欄, c.needMsg, c.after: 呼び出し後の処理
+  function makeStore(c) {
+    var s = { items: [] };
+    var delTimer = null;
+    var say = function (t) { $(c.p + 'Status').textContent = t; };
+    function find(name) { for (var i = 0; i < s.items.length; i++) if (s.items[i].name === name) return i; return -1; }
+    function sort() { s.items.sort(function (a, b) { return a.name.localeCompare(b.name, 'ja'); }); }
 
-  function renderMixList(selectName) {
-    var sel = $('mixSel');
-    sel.innerHTML = '';
-    var o0 = document.createElement('option');
-    o0.value = ''; o0.textContent = mixes.length ? '（選んでください）' : '（まだ保存した配合はありません）';
-    sel.appendChild(o0);
-    mixes.forEach(function (m) {
-      var o = document.createElement('option');
-      o.value = m.name; o.textContent = m.name; sel.appendChild(o);
-    });
-    sel.value = selectName && findMix(selectName) !== -1 ? selectName : '';
-  }
-
-  function recallMix(name) {
-    var i = findMix(name);
-    if (i === -1) return;
-    var m = mixes[i];
-    MIX_FIELDS.forEach(function (id) { $(id).value = m[id] === undefined ? '' : m[id]; });
-    AIR.forEach(fmtAirField);
-    $('mixName').value = m.name;
-    save(); render();
-    say('mixStatus', '「' + m.name + '」を呼び出しました。');
-  }
-
-  function saveMix() {
-    var name = $('mixName').value.trim();
-    if (!name) { say('mixStatus', '配合名を入れてください。'); $('mixName').focus(); return; }
-    var need = ['w', 'c', 's1', 'g1', 'airD'].filter(function (id) { return isNaN(num(id)); });
-    if (need.length) { say('mixStatus', '水・セメント・S1・G1・設計空気量を入れてから保存してください。'); return; }
-    var m = { name: name };
-    MIX_FIELDS.forEach(function (id) { m[id] = $(id).value; });
-    var i = findMix(name);
-    if (i === -1) mixes.push(m); else mixes[i] = m;
-    sortMixes();
-    renderMixList(name);
-    var ok = saveMixes();
-    say('mixStatus', ok ? ('「' + name + '」を' + (i === -1 ? '保存しました。' : '上書き保存しました。'))
-                        : 'この環境では保存できません（プライベートブラウズなど）。');
-  }
-
-  var delTimer = null;
-  function deleteMix() {
-    var name = $('mixSel').value;
-    var btn = $('mixDel');
-    if (!name) { say('mixStatus', '削除する配合を、上の一覧から選んでください。'); return; }
-    if (btn.dataset.armed !== name) {
-      btn.dataset.armed = name;
-      btn.textContent = 'もう一度押すと「' + name + '」を削除';
-      clearTimeout(delTimer);
-      delTimer = setTimeout(resetDelBtn, 4000);
-      return;
+    s.load = function () {
+      try {
+        var raw = localStorage.getItem(c.key);
+        var a = raw ? JSON.parse(raw) : [];
+        s.items = Array.isArray(a) ? a.filter(function (m) { return m && typeof m.name === 'string' && m.name; }) : [];
+      } catch (e) { storageOk = false; s.items = []; }
+      sort();
+    };
+    s.persist = function () {
+      try { localStorage.setItem(c.key, JSON.stringify(s.items)); return true; }
+      catch (e) { storageOk = false; return false; }
+    };
+    s.renderList = function (selectName) {
+      var sel = $(c.p + 'Sel');
+      sel.innerHTML = '';
+      var o0 = document.createElement('option');
+      o0.value = '';
+      o0.textContent = s.items.length ? '（選んでください）' : '（まだ保存した' + c.label + 'はありません）';
+      sel.appendChild(o0);
+      s.items.forEach(function (m) {
+        var o = document.createElement('option');
+        o.value = m.name; o.textContent = m.name; sel.appendChild(o);
+      });
+      sel.value = selectName && find(selectName) !== -1 ? selectName : '';
+    };
+    s.recall = function (name) {
+      var i = find(name);
+      if (i === -1) return;
+      var m = s.items[i];
+      c.fields.forEach(function (id) { $(id).value = m[id] === undefined ? '' : m[id]; });
+      if (c.after) c.after();
+      $(c.p + 'Name').value = m.name;
+      save(); render();
+      say('「' + m.name + '」を呼び出しました。');
+    };
+    s.saveCurrent = function () {
+      var name = $(c.p + 'Name').value.trim();
+      if (!name) { say(c.label + '名を入れてください。'); $(c.p + 'Name').focus(); return; }
+      var miss = c.need.filter(function (id) { return isNaN(num(id)); });
+      if (miss.length) { say(c.needMsg); return; }
+      var m = { name: name };
+      c.fields.forEach(function (id) { m[id] = $(id).value; });
+      var i = find(name);
+      if (i === -1) s.items.push(m); else s.items[i] = m;
+      sort();
+      s.renderList(name);
+      say(s.persist() ? ('「' + name + '」を' + (i === -1 ? '保存しました。' : '上書き保存しました。'))
+                      : 'この環境では保存できません（プライベートブラウズなど）。');
+    };
+    function resetDel() {
+      var btn = $(c.p + 'Del'); btn.dataset.armed = ''; btn.textContent = '選んだ' + c.label + 'を削除';
     }
-    mixes.splice(findMix(name), 1);
-    saveMixes(); renderMixList(''); resetDelBtn();
-    say('mixStatus', '「' + name + '」を削除しました。');
+    s.remove = function () {
+      var name = $(c.p + 'Sel').value;
+      var btn = $(c.p + 'Del');
+      if (!name) { say('削除する' + c.label + 'を、上の一覧から選んでください。'); return; }
+      if (btn.dataset.armed !== name) {
+        btn.dataset.armed = name;
+        btn.textContent = 'もう一度押すと「' + name + '」を削除';
+        clearTimeout(delTimer);
+        delTimer = setTimeout(resetDel, 4000);
+        return;
+      }
+      s.items.splice(find(name), 1);
+      s.persist(); s.renderList(''); resetDel();
+      say('「' + name + '」を削除しました。');
+    };
+    // バックアップの読み込み用：同じ名前は上書き。読み込めた件数を返す
+    s.merge = function (list) {
+      var n = 0;
+      (Array.isArray(list) ? list : []).forEach(function (m) {
+        if (!m || typeof m.name !== 'string' || !m.name) return;
+        var clean = { name: m.name.slice(0, 40) };
+        c.fields.forEach(function (id) { clean[id] = (m[id] === undefined || m[id] === null) ? '' : String(m[id]); });
+        var i = find(clean.name);
+        if (i === -1) s.items.push(clean); else s.items[i] = clean;
+        n++;
+      });
+      sort(); s.persist(); s.renderList('');
+      return n;
+    };
+    s.init = function () {
+      $(c.p + 'Sel').addEventListener('change', function () { resetDel(); if (this.value) s.recall(this.value); });
+      $(c.p + 'Save').addEventListener('click', s.saveCurrent);
+      $(c.p + 'Del').addEventListener('click', s.remove);
+      s.load(); s.renderList('');
+      if (!storageOk) say('この環境では' + c.label + 'を保存できません。');
+    };
+    return s;
   }
-  function resetDelBtn() {
-    var btn = $('mixDel'); btn.dataset.armed = ''; btn.textContent = '選んだ配合を削除';
-  }
+
+  var mixStore = makeStore({
+    p: 'mix', key: 'unit-water-mixes-v1', label: '配合',
+    fields: ['w', 'c', 's1', 's2', 's3', 'g1', 'g2', 'g3', 'airD', 'corr'],
+    need: ['w', 'c', 's1', 'g1', 'airD'],
+    needMsg: '水・セメント・S1・G1・設計空気量を入れてから保存してください。',
+    after: function () { AIR.forEach(fmtAirField); }
+  });
+  var meterStore = makeStore({
+    p: 'meter', key: 'unit-water-meters-v1', label: 'エアメータ',
+    fields: ['vol', 'mMeter'],
+    need: ['vol', 'mMeter'],
+    needMsg: '下容器容積とエアメータの質量を入れてから保存してください。'
+  });
 
   function backupOut() {
-    var text = JSON.stringify({ app: 'unit-water', version: 1, mixes: mixes });
+    var text = JSON.stringify({ app: 'unit-water', version: 2, mixes: mixStore.items, meters: meterStore.items });
     $('bk').value = text;
     $('bk').focus(); $('bk').select();
-    var done = function () { say('bkStatus', mixes.length + '件の配合を文字にしました。コピーしてメモなどに貼ってください。'); };
-    try { navigator.clipboard.writeText(text).then(done, function () { say('bkStatus', '上の文字を長押ししてコピーしてください。'); }); }
-    catch (e) { say('bkStatus', '上の文字を長押ししてコピーしてください。'); }
+    var msg = '配合' + mixStore.items.length + '件・エアメータ' + meterStore.items.length + '件を文字にしました。';
+    try { navigator.clipboard.writeText(text).then(function () { say('bkStatus', msg + 'コピーしてメモなどに貼ってください。'); }, function () { say('bkStatus', msg + '上の文字を長押ししてコピーしてください。'); }); }
+    catch (e) { say('bkStatus', msg + '上の文字を長押ししてコピーしてください。'); }
   }
   function backupIn() {
     var text = $('bk').value.trim();
     if (!text) { say('bkStatus', '貼りつけた文字がありません。'); return; }
     try {
       var d = JSON.parse(text);
-      var list = Array.isArray(d) ? d : d.mixes;
-      if (!Array.isArray(list)) throw new Error('形式が違います');
-      var n = 0;
-      list.forEach(function (m) {
-        if (!m || typeof m.name !== 'string' || !m.name) return;
-        var clean = { name: m.name.slice(0, 40) };
-        MIX_FIELDS.forEach(function (id) { clean[id] = (m[id] === undefined || m[id] === null) ? '' : String(m[id]); });
-        var i = findMix(clean.name);
-        if (i === -1) mixes.push(clean); else mixes[i] = clean;
-        n++;
-      });
-      sortMixes(); saveMixes(); renderMixList('');
-      say('bkStatus', n + '件の配合を読み込みました。');
+      // 古いバックアップ（配合だけの配列）も読めるようにする
+      var mixList = Array.isArray(d) ? d : d.mixes;
+      var meterList = Array.isArray(d) ? [] : d.meters;
+      if (!Array.isArray(mixList) && !Array.isArray(meterList)) throw new Error('形式が違います');
+      var a = mixStore.merge(mixList);
+      var b = meterStore.merge(meterList);
+      say('bkStatus', '配合' + a + '件・エアメータ' + b + '件を読み込みました。');
     } catch (e) {
       say('bkStatus', '読み込めませんでした。バックアップで作った文字を、そのまま貼ってください。');
     }
   }
+  function say(id, text) { $(id).textContent = text; }
 
   function setResult(W, E, state, msg) {
     $('rW').textContent = W; $('rE').textContent = E; $('msg').textContent = msg || '';
@@ -416,14 +461,11 @@ function compute(v) {
   $('sample').addEventListener('click', function () { setValues(SAMPLE); save(); render(); });
   $('clear').addEventListener('click', function () { setValues({ tol: 15 }); save(); render(); $('w').focus(); });
 
-  $('mixSel').addEventListener('change', function () { resetDelBtn(); if (this.value) recallMix(this.value); });
-  $('mixSave').addEventListener('click', saveMix);
-  $('mixDel').addEventListener('click', deleteMix);
   $('bkOut').addEventListener('click', backupOut);
   $('bkIn').addEventListener('click', backupIn);
 
-  mixes = loadMixes(); sortMixes(); renderMixList('');
-  if (!storageOk) say('mixStatus', 'この環境では配合を保存できません。');
+  mixStore.init();
+  meterStore.init();
   setValues(load() || SAMPLE);
   render();
 

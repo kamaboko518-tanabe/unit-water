@@ -57,7 +57,7 @@ body {
 }
 .result-inner {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+  padding: 10px 14px 12px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center;
 }
 .result h1 { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
 .big { font-size: 2.5rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -72,11 +72,14 @@ body {
   grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
   border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; font-variant-numeric: tabular-nums;
 }
+.target.range { border-top: 0; margin-top: -2px; padding-top: 0; }
+.target.range .tv { font-size: 1.125rem; }
 .target .tl { font-size: 0.8125rem; color: var(--muted); }
 .target .tv { font-size: 1.5rem; font-weight: 700; }
 .target .tv small { font-size: 0.8125rem; font-weight: 500; color: var(--muted); margin-left: 3px; }
 .msg { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; color: var(--muted); min-height: 1em; }
 .msg.bad { color: var(--ng); }
+.msg:empty { display: none; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .card h2 { margin: 0; font-size: 1rem; }
@@ -136,8 +139,12 @@ button {
         <span class="pill" id="rJ">判定待ち</span>
       </div>
       <div class="target">
-        <span class="tl">目標質量（誤差0）<br>エアメータ＋試料</span>
+        <span class="tl">目標質量（誤差0）</span>
         <span class="tv"><span id="rT">–</span><small>g</small></span>
+      </div>
+      <div class="target range">
+        <span class="tl">合格の範囲</span>
+        <span class="tv"><span id="rR">–</span><small>g</small></span>
       </div>
       <p class="msg" id="msg"></p>
     </div>
@@ -476,7 +483,7 @@ function computeTarget(v) {
     var needTarget = Object.keys(REQUIRED).filter(function (id) { return id !== 'mTotal'; });
     var missT = needTarget.filter(function (id) { return isNaN(num(id)); });
     if (missT.length) {
-      $('rT').textContent = '–';
+      $('rT').textContent = '–'; $('rR').textContent = '–';
       setResult('–', '–', 'wait', '未入力：' + missT.map(function (id) { return REQUIRED[id]; }).concat(isNaN(num('mTotal')) ? [REQUIRED.mTotal] : []).join('、'));
       $('steps').innerHTML = '<p class="note">必須項目（＊）を入力すると、ここに計算の経過が出ます。</p>';
       return;
@@ -487,8 +494,9 @@ function computeTarget(v) {
     var t = num('tol'); v.tol = isNaN(t) ? 15 : t;
 
     var tg = computeTarget(v);
-    if (tg.error) { $('rT').textContent = '–'; setResult('–', '–', 'wait', tg.error, true); $('steps').innerHTML = ''; return; }
+    if (tg.error) { $('rT').textContent = '–'; $('rR').textContent = '–'; setResult('–', '–', 'wait', tg.error, true); $('steps').innerHTML = ''; return; }
     $('rT').textContent = fmt(Math.round(tg.target), 0);
+    $('rR').textContent = fmt(tg.passLow, 0) + ' ～ ' + fmt(tg.passHigh, 0);
     var targetSteps =
       step('目標質量（誤差 W′ が 0 になる、エアメータ＋試料の質量）', fmt(Math.round(tg.target), 0) + ' g',
            '試料の質量 ＝ γ1 × 容積 × (1 − 試料中の空気量 × 0.01) として、エアメータの質量を足した値') +

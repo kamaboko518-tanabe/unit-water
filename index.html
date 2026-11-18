@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f5f7a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="単位水量">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>単位水量計算</title>
+<style>
+/* layout: sticky result bar on top, then input cards, then calculation steps */
+:root {
+  --bg: #eef3f5;
+  --card: #ffffff;
+  --ink: #17262c;
+  --muted: #566b74;
+  --line: #cfdbe0;
+  --accent: #0f5f7a;
+  --ok: #17703a;
+  --ok-bg: #dcf1e3;
+  --ng: #a32222;
+  --ng-bg: #f9dede;
+  --field: #f6f9fa;
+  --font: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f171a; --card: #182226; --ink: #e6eef1; --muted: #98aeb7; --line: #2d3f46;
+    --accent: #5cbad9; --ok: #7ad79b; --ok-bg: #173a26; --ng: #ff9d9d; --ng-bg: #4a1b1b; --field: #0f171a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f171a; --card: #182226; --ink: #e6eef1; --muted: #98aeb7; --line: #2d3f46;
+  --accent: #5cbad9; --ok: #7ad79b; --ok-bg: #173a26; --ng: #ff9d9d; --ng-bg: #4a1b1b; --field: #0f171a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font);
+  padding: 0 max(16px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.wrap { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.result {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  padding: calc(env(safe-area-inset-top) + 10px) 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+.result-inner {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+}
+.result h1 { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+.big { font-size: 2.5rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.big small { font-size: 0.875rem; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font-variant-numeric: tabular-nums; }
+.err { font-size: 0.875rem; color: var(--muted); }
+.err b { color: var(--ink); font-size: 1.125rem; }
+.pill { font-weight: 700; font-size: 0.9375rem; padding: 4px 12px; border-radius: 999px; background: var(--line); color: var(--muted); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.ng { background: var(--ng-bg); color: var(--ng); }
+.msg { grid-column: 1 / -1; margin: 0; font-size: 0.8125rem; color: var(--ng); min-height: 1em; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.card h2 { margin: 0; font-size: 1rem; }
+.card h2 small { font-weight: 400; color: var(--muted); font-size: 0.8125rem; margin-left: 6px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid.one { grid-template-columns: 1fr; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8125rem; color: var(--muted); }
+input {
+  font: inherit; font-size: 1.25rem; padding: 10px 12px; color: var(--ink); width: 100%;
+  background: var(--field); border: 1px solid var(--line); border-radius: 8px; font-variant-numeric: tabular-nums;
+}
+input:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.req::after { content: " *"; color: var(--accent); }
+
+details.card summary { cursor: pointer; font-weight: 700; font-size: 1rem; }
+.steps { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.step { border-top: 1px solid var(--line); padding-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; }
+.step .name { font-weight: 600; font-size: 0.9375rem; }
+.step .val { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 1.0625rem; }
+.step .formula { grid-column: 1 / -1; font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
+
+.actions { display: flex; gap: 10px; }
+button {
+  flex: 1; font: inherit; font-size: 0.9375rem; padding: 12px 8px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+.note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="result" aria-live="polite">
+    <div class="result-inner">
+      <h1>単位水量測定（エアメータ法 無注水法・厳密式）</h1>
+      <div class="big"><span id="rW">–</span><small>kg/m³</small></div>
+      <div class="side">
+        <span class="err">誤差 W′ <b id="rE">–</b></span>
+        <span class="pill" id="rJ">判定待ち</span>
+      </div>
+      <p class="msg" id="msg"></p>
+    </div>
+  </div>
+
+  <form class="wrap" id="f" autocomplete="off" style="gap:14px">
+
+    <section class="card">
+      <h2>配合表の単位量<small>kg/m³</small></h2>
+      <div class="grid">
+        <label for="w"><span class="req">W 水</span><input id="w" type="number" inputmode="decimal" step="any"></label>
+        <label for="c"><span class="req">C セメント</span><input id="c" type="number" inputmode="decimal" step="any"></label>
+        <label for="s1"><span class="req">S1 細骨材</span><input id="s1" type="number" inputmode="decimal" step="any"></label>
+        <label for="s2">S2 細骨材<input id="s2" type="number" inputmode="decimal" step="any"></label>
+        <label for="s3">S3 細骨材<input id="s3" type="number" inputmode="decimal" step="any"></label>
+        <label for="g1"><span class="req">G1 粗骨材</span><input id="g1" type="number" inputmode="decimal" step="any"></label>
+        <label for="g2">G2 粗骨材<input id="g2" type="number" inputmode="decimal" step="any"></label>
+        <label for="g3">G3 粗骨材<input id="g3" type="number" inputmode="decimal" step="any"></label>
+      </div>
+      <p class="note">混和剤は計算に使わないため入力不要です。</p>
+    </section>
+
+    <section class="card">
+      <h2>空気量<small>%</small></h2>
+      <div class="grid">
+        <label for="airD"><span class="req">設計空気量</span><input id="airD" type="number" inputmode="decimal" step="any"></label>
+        <label for="airM"><span class="req">測定空気量</span><input id="airM" type="number" inputmode="decimal" step="any"></label>
+        <label for="corr">骨材修正係数<input id="corr" type="number" inputmode="decimal" step="any"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>エアメータの測定</h2>
+      <div class="grid one">
+        <label for="vol"><span class="req">下容器容積（L）</span><input id="vol" type="number" inputmode="decimal" step="any"></label>
+        <label for="mMeter"><span class="req">エアメータの質量（g）</span><input id="mMeter" type="number" inputmode="decimal" step="any"></label>
+        <label for="mTotal"><span class="req">エアメータ＋試料の質量（g）</span><input id="mTotal" type="number" inputmode="decimal" step="any"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>判定</h2>
+      <div class="grid one">
+        <label for="tol">規格値の許容差 ±（kg/m³）<input id="tol" type="number" inputmode="decimal" step="any"></label>
+      </div>
+    </section>
+
+    <details class="card" open>
+      <summary>計算の経過</summary>
+      <div class="steps" id="steps"></div>
+    </details>
+
+    <div class="actions">
+      <button type="button" id="sample">サンプルの値を入れる</button>
+      <button type="button" id="clear">すべてクリア</button>
+    </div>
+  </form>
+</div>
+
+<script>
+// <compute>
+function roundHalfAway(x) { var r = x < 0 ? -Math.round(-x) : Math.round(x); return r === 0 ? 0 : r; }
+// v: 数値オブジェクト（空欄の任意項目は 0、必須項目の空欄は NaN）
+function compute(v) {
+  var Mc = v.w + v.c + v.s1 + v.s2 + v.s3 + v.g1 + v.g2 + v.g3;
+  var alpha = v.c * 0.001;
+  var k = 1 - (v.airD + alpha) * 0.01;
+  var gamma1 = Mc / k;
+  var airS = v.airM - v.corr;
+  var mass = v.mTotal - v.mMeter;
+  if (!(mass > 0)) return { error: 'エアメータ＋試料の質量が、エアメータの質量より大きくありません。' };
+  var denomAir = v.vol * (1 - airS * 0.01);
+  if (!(denomAir > 0)) return { error: '容積または空気量の値を確認してください。' };
+  var gamma2 = mass / denomAir;
+  var den = 1 - gamma2 * 0.001;
+  if (Math.abs(den) < 1e-9) return { error: '試料の単位容積質量が不正です。値を確認してください。' };
+  var wpRaw = (gamma2 * k - Mc) / den;
+  var wp = roundHalfAway(wpRaw);
+  var W = v.w + wp;
+  return {
+    Mc: Mc, alpha: alpha, k: k, gamma1: gamma1, airS: airS, mass: mass, gamma2: gamma2,
+    wpRaw: wpRaw, wp: wp, W: W, pass: Math.abs(wp) <= v.tol
+  };
+}
+// </compute>
+
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var REQUIRED = { w: '水 W', c: 'セメント C', s1: '細骨材 S1', g1: '粗骨材 G1', airD: '設計空気量', airM: '測定空気量', vol: '下容器容積', mMeter: 'エアメータの質量', mTotal: 'エアメータ＋試料の質量' };
+  var OPTIONAL = ['s2', 's3', 'g2', 'g3', 'corr'];
+  var ALL = Object.keys(REQUIRED).concat(OPTIONAL, ['tol']);
+  var SAMPLE = { w: 161, c: 293, s1: 822, s2: '', s3: '', g1: 633, g2: 421, g3: '', airD: '4.5', airM: '5.0', corr: '0.0', vol: 7.037, mMeter: 6321, mTotal: 22680, tol: 15 };
+  var AIR = ['airD', 'airM', 'corr']; // 空気量は有効数字2桁（小数第1位）で扱う
+  var KEY = 'unit-water-inputs-v1';
+
+  function num(id) { var s = $(id).value; return s === '' ? NaN : parseFloat(s); }
+  function fmt(x, d) { return x.toLocaleString('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false }); }
+  function signed(x) { return (x > 0 ? '+' : '') + String(x); }
+
+  function save() {
+    try { var o = {}; ALL.forEach(function (id) { o[id] = $(id).value; }); localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {}
+  }
+  function load() {
+    try { var s = localStorage.getItem(KEY); if (s) return JSON.parse(s); } catch (e) {}
+    return null;
+  }
+  function fmtAirField(id) {
+    var n = num(id);
+    if (!isNaN(n)) $(id).value = n.toFixed(1);
+  }
+  function setValues(o) {
+    ALL.forEach(function (id) { $(id).value = (o && o[id] !== undefined) ? o[id] : ''; });
+    AIR.forEach(fmtAirField);
+  }
+
+  function setResult(W, E, state, msg) {
+    $('rW').textContent = W; $('rE').textContent = E; $('msg').textContent = msg || '';
+    var p = $('rJ'); p.className = 'pill' + (state === 'ok' ? ' ok' : state === 'ng' ? ' ng' : '');
+    p.textContent = state === 'ok' ? '✓ 合格' : state === 'ng' ? '✕ 不合格' : '判定待ち';
+  }
+  function step(name, val, formula) {
+    return '<div class="step"><span class="name">' + name + '</span><span class="val">' + val + '</span>' +
+      (formula ? '<span class="formula">' + formula + '</span>' : '') + '</div>';
+  }
+
+  function render() {
+    var miss = Object.keys(REQUIRED).filter(function (id) { return isNaN(num(id)); });
+    if (miss.length) {
+      setResult('–', '–', 'wait', '未入力：' + miss.map(function (id) { return REQUIRED[id]; }).join('、'));
+      $('steps').innerHTML = '<p class="note">必須項目（＊）を入力すると、ここに計算の経過が出ます。</p>';
+      return;
+    }
+    var v = {};
+    Object.keys(REQUIRED).forEach(function (id) { v[id] = num(id); });
+    OPTIONAL.forEach(function (id) { var n = num(id); v[id] = isNaN(n) ? 0 : n; });
+    var t = num('tol'); v.tol = isNaN(t) ? 15 : t;
+    var r = compute(v);
+    if (r.error) { setResult('–', '–', 'wait', r.error); $('steps').innerHTML = ''; return; }
+    setResult(String(r.W), signed(r.wp), r.pass ? 'ok' : 'ng', '');
+    $('steps').innerHTML =
+      step('配合上の単位容積質量 Mc', fmt(r.Mc, 0) + ' kg/m³', 'W＋C＋S＋G の合計') +
+      step('セメント粒子の浸潤係数 α', fmt(r.alpha, 3) + ' %', 'α ＝ C × 0.001') +
+      step('① 配合上の空気を除いた単位容積質量 γ1', fmt(r.gamma1, 0), 'γ1 ＝ Mc ÷ (1 − (設計空気量＋α) × 0.01)') +
+      step('試料の質量', fmt(r.mass, 0) + ' g', 'エアメータ＋試料 − エアメータ') +
+      step('試料中の空気量', fmt(r.airS, 1) + ' %', '測定空気量 − 骨材修正係数') +
+      step('② 試験で得られる空気を除いた単位容積質量 γ2', fmt(r.gamma2, 0), 'γ2 ＝ 試料の質量 ÷ (容積 × (1 − 試料中の空気量 × 0.01))') +
+      step('③ 単位水量の誤差 W′', signed(r.wp) + ' kg/m³', 'W′ ＝ (γ2 × (1 − (設計空気量＋α) × 0.01) − Mc) ÷ (1 − γ2 × 0.001)　※整数に丸め（計算値 ' + fmt(r.wpRaw, 2) + '）') +
+      step('④ 推定単位水量 W', r.W + ' kg/m³', 'W ＝ 配合上の単位水量 ＋ W′') +
+      step('判定', (r.pass ? '合格' : '不合格'), '規格値 ' + v.w + ' ± ' + v.tol + ' kg/m³ （誤差 W′ の絶対値 ≦ ' + v.tol + '）');
+  }
+
+  document.getElementById('f').addEventListener('input', function () { save(); render(); });
+  // 入力欄から指が離れたとき、空気量を 5 → 5.0 の形にそろえる
+  document.getElementById('f').addEventListener('focusout', function (e) {
+    if (AIR.indexOf(e.target.id) !== -1) { fmtAirField(e.target.id); save(); render(); }
+  });
+  document.getElementById('f').addEventListener('submit', function (e) { e.preventDefault(); });
+  $('sample').addEventListener('click', function () { setValues(SAMPLE); save(); render(); });
+  $('clear').addEventListener('click', function () { setValues({ tol: 15 }); save(); render(); $('w').focus(); });
+
+  setValues(load() || SAMPLE);
+  render();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+})();
+</script>
+</body>
+</html>
